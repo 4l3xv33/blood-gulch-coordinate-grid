@@ -14,17 +14,24 @@
     .controls { display:flex; align-items:end; gap:12px; flex:1 1 470px; justify-content:flex-end; flex-wrap:wrap; }
     label { display:grid; gap:5px; color:#d9ddcf; font-size:12px; }
     select { min-width:110px; padding:8px 10px; border:1px solid #586052; border-radius:7px; background:#20251e; color:#fff; }
+    button { padding:8px 11px; border:1px solid #586052; border-radius:7px; background:#20251e; color:#fff; font:600 13px/1 "Segoe UI",sans-serif; cursor:pointer; }
+    button:hover { background:#2c3329; border-color:#7a856f; }
+    button:focus-visible { outline:2px solid #e9d671; outline-offset:2px; }
+    .zoom-controls { display:flex; align-items:center; gap:6px; }
+    .zoom-controls output { min-width:48px; color:#e9d671; text-align:center; font:600 12px/1 Consolas,monospace; }
     .readout { min-width:270px; padding:8px 12px; border:1px solid #56604f; border-radius:7px; background:#1b2019; font:600 13px/1.3 Consolas,monospace; color:#e9d671; }
     main { padding:16px; }
     .map-shell { position:relative; width:min(100%,1270px); margin:auto; overflow:hidden; border:1px solid #505749; border-radius:10px; background:#171a15; box-shadow:0 18px 60px #0009; }
+    .map-stage { position:relative; width:100%; transform-origin:0 0; will-change:transform; }
     #map { display:block; width:100%; height:auto; user-select:none; -webkit-user-drag:none; }
     #grid { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+    #grid.grabbing { cursor:grabbing; }
     #tooltip { position:absolute; z-index:3; display:none; pointer-events:none; transform:translate(12px,-115%); padding:7px 9px; border:1px solid #ead25d; border-radius:6px; background:#11150fed; color:#fff; box-shadow:0 5px 20px #000b; font:600 13px/1.25 Consolas,monospace; white-space:nowrap; }
     #toast { position:absolute; z-index:4; left:50%; bottom:14px; transform:translate(-50%,12px); opacity:0; pointer-events:none; padding:8px 12px; border-radius:999px; background:#e7d365; color:#17160d; font-size:13px; font-weight:700; transition:.18s ease; }
     #toast.show { opacity:1; transform:translate(-50%,0); }
     footer { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; width:min(100%,1270px); margin:10px auto 0; color:#aeb5a8; font-size:12px; }
     footer strong { color:#e9d671; }
-    @media (max-width:1100px) { header { align-items:flex-start; flex-direction:column; } .controls { width:100%; justify-content:flex-start; } .readout { flex:1; } }
+    @media (max-width:1400px) { header { align-items:flex-start; flex-direction:column; } .controls { width:100%; justify-content:flex-start; } .readout { flex:1; } }
     @media (max-width:760px) { .readout { width:100%; } main { padding:8px; } }
   </style>
 </head>
@@ -43,18 +50,27 @@
           <option value="10">10 world units</option>
         </select>
       </label>
+      <div class="zoom-controls" aria-label="Map zoom controls">
+        <button id="zoomOut" type="button" aria-label="Zoom out">−</button>
+        <output id="zoomLevel" aria-live="polite">100%</output>
+        <button id="zoomIn" type="button" aria-label="Zoom in">+</button>
+        <button id="zoomReset" type="button">Reset</button>
+      </div>
       <div id="readout" class="readout" aria-live="polite">Move over a grid point</div>
     </div>
   </header>
   <main>
     <div class="map-shell" id="mapShell">
-      <img id="map" src="blood-gulch-map.png" width="2000" height="1126" alt="Overhead view of Blood Gulch">
-      <canvas id="grid" width="2000" height="1126" aria-label="Interactive Blood Gulch coordinate grid"></canvas>
+      <div class="map-stage" id="mapStage">
+        <img id="map" src="blood-gulch-map.png" width="2000" height="1126" alt="Overhead view of Blood Gulch">
+        <canvas id="grid" width="2000" height="1126" aria-label="Interactive Blood Gulch coordinate grid"></canvas>
+      </div>
       <div id="tooltip"></div>
       <div id="toast" role="status">Copied</div>
     </div>
     <footer>
       <span><strong>Z</strong> is the BSP surface height plus 0.5, matching the actor-origin height used in the map.</span>
+      <span>Use the zoom controls or mouse wheel; drag the map to pan.</span>
     </footer>
   </main>
 
@@ -64,7 +80,12 @@
       const canvas = document.getElementById('grid');
       const ctx = canvas.getContext('2d');
       const shell = document.getElementById('mapShell');
+      const stage = document.getElementById('mapStage');
       const spacingControl = document.getElementById('spacing');
+      const zoomIn = document.getElementById('zoomIn');
+      const zoomOut = document.getElementById('zoomOut');
+      const zoomReset = document.getElementById('zoomReset');
+      const zoomLevel = document.getElementById('zoomLevel');
       const tooltip = document.getElementById('tooltip');
       const readout = document.getElementById('readout');
       const toast = document.getElementById('toast');
@@ -72,12 +93,22 @@
       const byKey = new Map(points.map(p => [`${p.x},${p.y}`, p]));
       let hovered = null;
       let toastTimer = 0;
+      let zoom = 1;
+      let panX = 0;
+      let panY = 0;
+      let drag = null;
+      let suppressClick = false;
 
-      // Affine transform fitted to the four confirmed in-game placements.
-      const project = (x,y) => ({
-        u: -5.5389628020*x + 8.3627477600*y + 2390.2796633071,
-        v:  8.4071126829*x + 5.6969250417*y + 676.8002260162
-      });
+      // The latest in-game check showed engine (67,-148) at the old grid's
+      // (70,-151), so project corrected coordinates through that global offset.
+      const project = (x,y) => {
+        const calibratedX = x + 3;
+        const calibratedY = y - 3;
+        return {
+          u: -5.5389628020*calibratedX + 8.3627477600*calibratedY + 2390.2796633071,
+          v:  8.4071126829*calibratedX + 5.6969250417*calibratedY + 676.8002260162
+        };
+      };
 
       function visibleAtSpacing(p, spacing) {
         return p.x % spacing === 0 && p.y % spacing === 0;
@@ -127,27 +158,83 @@
 
       function pointerPosition(event) {
         const rect=canvas.getBoundingClientRect();
-        return { x:(event.clientX-rect.left)*canvas.width/rect.width, y:(event.clientY-rect.top)*canvas.height/rect.height, cssX:event.clientX-rect.left, cssY:event.clientY-rect.top };
+        const shellRect=shell.getBoundingClientRect();
+        return { x:(event.clientX-rect.left)*canvas.width/rect.width, y:(event.clientY-rect.top)*canvas.height/rect.height, cssX:event.clientX-shellRect.left, cssY:event.clientY-shellRect.top };
       }
 
       function textFor(p) { return `${p.x}, ${p.y}, ${Number(p.z).toFixed(4)}`; }
 
+      function clampPan() {
+        const minX=Math.min(0,shell.clientWidth-stage.offsetWidth*zoom);
+        const minY=Math.min(0,shell.clientHeight-stage.offsetHeight*zoom);
+        panX=Math.max(minX,Math.min(0,panX));
+        panY=Math.max(minY,Math.min(0,panY));
+      }
+
+      function applyView() {
+        clampPan();
+        stage.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;
+        zoomLevel.value=`${Math.round(zoom*100)}%`;
+        zoomOut.disabled=zoom<=1;
+        zoomIn.disabled=zoom>=4;
+      }
+
+      function setZoom(nextZoom,anchorX=shell.clientWidth/2,anchorY=shell.clientHeight/2) {
+        const next=Math.max(1,Math.min(4,nextZoom));
+        const mapX=(anchorX-panX)/zoom;
+        const mapY=(anchorY-panY)/zoom;
+        zoom=next;
+        panX=anchorX-mapX*zoom;
+        panY=anchorY-mapY*zoom;
+        tooltip.style.display='none';
+        hovered=null;
+        applyView();
+        draw();
+      }
+
       canvas.addEventListener('pointermove', event => {
+        if(drag && event.pointerId===drag.pointerId) {
+          const dx=event.clientX-drag.startX; const dy=event.clientY-drag.startY;
+          if(Math.abs(dx)>3||Math.abs(dy)>3) drag.moved=true;
+          if(drag.moved) { panX=drag.panX+dx; panY=drag.panY+dy; applyView(); tooltip.style.display='none'; hovered=null; draw(); }
+          return;
+        }
         const pos=pointerPosition(event); hovered=nearestPoint(pos.x,pos.y); draw();
         if(!hovered){ tooltip.style.display='none'; readout.textContent='Move over a grid point'; return; }
         const value=textFor(hovered); readout.textContent=value;
         tooltip.textContent=value; tooltip.style.display='block';
         tooltip.style.left=`${Math.min(pos.cssX,shell.clientWidth-160)}px`; tooltip.style.top=`${Math.max(42,pos.cssY)}px`;
       });
-      canvas.addEventListener('pointerleave',()=>{ hovered=null; tooltip.style.display='none'; readout.textContent='Move over a grid point'; draw(); });
+      canvas.addEventListener('pointerdown',event=>{
+        if(event.button!==0) return;
+        drag={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,panX,panY,moved:false};
+        canvas.setPointerCapture(event.pointerId); canvas.classList.add('grabbing');
+      });
+      canvas.addEventListener('pointerup',event=>{
+        if(!drag||event.pointerId!==drag.pointerId) return;
+        suppressClick=drag.moved; drag=null; canvas.classList.remove('grabbing'); canvas.releasePointerCapture(event.pointerId);
+      });
+      canvas.addEventListener('pointercancel',()=>{drag=null;canvas.classList.remove('grabbing');});
+      canvas.addEventListener('pointerleave',()=>{ if(drag) return; hovered=null; tooltip.style.display='none'; readout.textContent='Move over a grid point'; draw(); });
       canvas.addEventListener('click', async event => {
+        if(suppressClick){suppressClick=false;return;}
         const pos=pointerPosition(event); const p=nearestPoint(pos.x,pos.y); if(!p) return;
         const value=textFor(p);
         try { await navigator.clipboard.writeText(value); }
         catch (_) { const t=document.createElement('textarea'); t.value=value; document.body.appendChild(t); t.select(); document.execCommand('copy'); t.remove(); }
         toast.textContent=`Copied ${value}`; toast.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('show'),1500);
       });
+      shell.addEventListener('wheel',event=>{
+        event.preventDefault();
+        const rect=shell.getBoundingClientRect();
+        setZoom(zoom*(event.deltaY<0?1.2:1/1.2),event.clientX-rect.left,event.clientY-rect.top);
+      },{passive:false});
+      zoomIn.addEventListener('click',()=>setZoom(zoom+.25));
+      zoomOut.addEventListener('click',()=>setZoom(zoom-.25));
+      zoomReset.addEventListener('click',()=>{zoom=1;panX=0;panY=0;applyView();draw();});
+      window.addEventListener('resize',applyView);
       spacingControl.addEventListener('change',()=>{ hovered=null; tooltip.style.display='none'; draw(); });
+      applyView();
       draw();
     })();
   </script>
