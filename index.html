@@ -7,14 +7,14 @@
   <style>
     :root { color-scheme: dark; font-family: Inter, "Segoe UI", sans-serif; background:#10120f; color:#f4f1e8; }
     * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; background:radial-gradient(circle at 50% 0,#283024 0,#131612 46%,#0b0d0b 100%); }
+    body { margin:0; min-height:100vh; min-height:100dvh; background:radial-gradient(circle at 50% 0,#283024 0,#131612 46%,#0b0d0b 100%); }
     header { display:flex; gap:18px; align-items:end; justify-content:space-between; flex-wrap:wrap; padding:18px 22px 14px; border-bottom:1px solid #3b4237; }
     h1 { margin:0 0 3px; font-size:clamp(20px,2.5vw,32px); font-weight:600; letter-spacing:.02em; }
     .subtitle,.hint { color:#b9c0b2; font-size:13px; }
     .controls { display:flex; align-items:end; gap:12px; flex:1 1 470px; justify-content:flex-end; flex-wrap:wrap; }
     label { display:grid; gap:5px; color:#d9ddcf; font-size:12px; }
     select { min-width:110px; padding:8px 10px; border:1px solid #586052; border-radius:7px; background:#20251e; color:#fff; }
-    button { padding:8px 11px; border:1px solid #586052; border-radius:7px; background:#20251e; color:#fff; font:600 13px/1 "Segoe UI",sans-serif; cursor:pointer; }
+    button { min-width:40px; min-height:40px; padding:8px 11px; border:1px solid #586052; border-radius:7px; background:#20251e; color:#fff; font:600 13px/1 "Segoe UI",sans-serif; cursor:pointer; }
     button:hover { background:#2c3329; border-color:#7a856f; }
     button:focus-visible { outline:2px solid #e9d671; outline-offset:2px; }
     .zoom-controls { display:flex; align-items:center; gap:6px; }
@@ -32,14 +32,34 @@
     footer { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; width:min(100%,1270px); margin:10px auto 0; color:#aeb5a8; font-size:12px; }
     footer strong { color:#e9d671; }
     @media (max-width:1400px) { header { align-items:flex-start; flex-direction:column; } .controls { width:100%; justify-content:flex-start; } .readout { flex:1; } }
-    @media (max-width:760px) { .readout { width:100%; } main { padding:8px; } }
+    @media (max-width:760px) {
+      header { gap:12px; padding:12px 10px 10px; }
+      .subtitle { line-height:1.35; }
+      .controls { display:grid; grid-template-columns:minmax(112px,1fr) auto; flex:none; gap:8px; align-items:end; }
+      label, select { width:100%; }
+      select { min-height:44px; font-size:16px; }
+      button { min-width:44px; min-height:44px; font-size:15px; }
+      .zoom-controls { gap:4px; justify-content:flex-end; }
+      .zoom-controls output { min-width:42px; }
+      .readout { grid-column:1 / -1; width:100%; min-width:0; min-height:40px; display:flex; align-items:center; }
+      main { padding:6px; }
+      .map-shell { border-radius:7px; }
+      #tooltip { display:none !important; }
+      footer { margin-top:7px; line-height:1.4; }
+      footer span:last-child { order:-1; }
+    }
+    @media (max-width:430px) {
+      .controls { grid-template-columns:1fr; }
+      .zoom-controls { justify-content:space-between; }
+      .readout { grid-column:1; }
+    }
   </style>
 </head>
 <body>
   <header>
     <div>
       <h1>Blood Gulch Coordinate Grid</h1>
-      <div class="subtitle">Hover an intersection to inspect it. Click to copy its actor spawn coordinate.</div>
+      <div class="subtitle">Hover or tap an intersection to inspect it. Click or tap to copy its actor spawn coordinate.</div>
     </div>
     <div class="controls">
       <label>Grid spacing
@@ -70,7 +90,7 @@
     </div>
     <footer>
       <span><strong>Z</strong> is the BSP surface height plus 0.5, matching the actor-origin height used in the map.</span>
-      <span>Use the zoom controls or mouse wheel; drag the map to pan.</span>
+      <span>Use the controls, mouse wheel, or pinch to zoom; drag the map to pan.</span>
     </footer>
   </main>
 
@@ -97,6 +117,8 @@
       let panX = 0;
       let panY = 0;
       let drag = null;
+      let pinch = null;
+      const activePointers = new Map();
       let suppressClick = false;
 
       // Projection fitted to eight scenario-defined Banshee, teleporter,
@@ -149,7 +171,8 @@
           if(d<bestDistance){best=p;bestDistance=d;}
         }
         const cssScale=canvas.getBoundingClientRect().width/canvas.width;
-        return bestDistance <= (11/cssScale)**2 ? best : null;
+        const hitRadius=window.matchMedia('(pointer: coarse)').matches ? 24 : 11;
+        return bestDistance <= (hitRadius/cssScale)**2 ? best : null;
       }
 
       function pointerPosition(event) {
@@ -189,6 +212,20 @@
       }
 
       canvas.addEventListener('pointermove', event => {
+        if(activePointers.has(event.pointerId)) activePointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+        if(pinch && activePointers.size>=2) {
+          const pair=[...activePointers.values()].slice(0,2);
+          const distance=Math.hypot(pair[1].x-pair[0].x,pair[1].y-pair[0].y);
+          const centerX=(pair[0].x+pair[1].x)/2-pinch.rect.left;
+          const centerY=(pair[0].y+pair[1].y)/2-pinch.rect.top;
+          const next=Math.max(1,Math.min(4,pinch.zoom*distance/pinch.distance));
+          zoom=next;
+          panX=centerX-pinch.mapX*zoom;
+          panY=centerY-pinch.mapY*zoom;
+          suppressClick=true;
+          tooltip.style.display='none'; hovered=null; applyView(); draw();
+          return;
+        }
         if(drag && event.pointerId===drag.pointerId) {
           const dx=event.clientX-drag.startX; const dy=event.clientY-drag.startY;
           if(Math.abs(dx)>3||Math.abs(dy)>3) drag.moved=true;
@@ -203,14 +240,27 @@
       });
       canvas.addEventListener('pointerdown',event=>{
         if(event.button!==0) return;
+        activePointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+        canvas.setPointerCapture(event.pointerId);
+        if(activePointers.size===2) {
+          const pair=[...activePointers.values()];
+          const rect=shell.getBoundingClientRect();
+          const centerX=(pair[0].x+pair[1].x)/2-rect.left;
+          const centerY=(pair[0].y+pair[1].y)/2-rect.top;
+          pinch={distance:Math.max(1,Math.hypot(pair[1].x-pair[0].x,pair[1].y-pair[0].y)),zoom,mapX:(centerX-panX)/zoom,mapY:(centerY-panY)/zoom,rect};
+          drag=null;
+          return;
+        }
         drag={pointerId:event.pointerId,startX:event.clientX,startY:event.clientY,panX,panY,moved:false};
-        canvas.setPointerCapture(event.pointerId); canvas.classList.add('grabbing');
+        canvas.classList.add('grabbing');
       });
       canvas.addEventListener('pointerup',event=>{
-        if(!drag||event.pointerId!==drag.pointerId) return;
-        suppressClick=drag.moved; drag=null; canvas.classList.remove('grabbing'); canvas.releasePointerCapture(event.pointerId);
+        activePointers.delete(event.pointerId);
+        if(pinch) { pinch=null; drag=null; canvas.classList.remove('grabbing'); if(canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId); return; }
+        if(drag&&event.pointerId===drag.pointerId) { suppressClick=drag.moved; drag=null; canvas.classList.remove('grabbing'); }
+        if(canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
       });
-      canvas.addEventListener('pointercancel',()=>{drag=null;canvas.classList.remove('grabbing');});
+      canvas.addEventListener('pointercancel',event=>{activePointers.delete(event.pointerId);drag=null;pinch=null;canvas.classList.remove('grabbing');});
       canvas.addEventListener('pointerleave',()=>{ if(drag) return; hovered=null; tooltip.style.display='none'; readout.textContent='Move over a grid point'; draw(); });
       canvas.addEventListener('click', async event => {
         if(suppressClick){suppressClick=false;return;}

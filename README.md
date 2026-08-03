@@ -4,9 +4,9 @@ An interactive coordinate reference for Blood Gulch in Halo Trial.
 
 **Live site:** [https://4l3xv33.github.io/blood-gulch-coordinate-grid/](https://4l3xv33.github.io/blood-gulch-coordinate-grid/)
 
-Open `index.html`, hover over a grid intersection to inspect its `x, y, z` coordinate, and click an intersection to copy the value. Grid spacing can be changed between 1, 2, 5, and 10 world units.
+Open `index.html`, hover or tap a grid intersection to inspect its `x, y, z` coordinate, and click or tap an intersection to copy the value. Grid spacing can be changed between 1, 2, 5, and 10 world units.
 
-Zoom with the controls or mouse wheel. Click and drag the map to pan while zoomed in.
+The interface adapts to phone-sized screens with touch-sized controls. Zoom with the controls, mouse wheel, or a two-finger pinch, and drag the map to pan while zoomed in.
 
 The displayed `z` value is the Blood Gulch BSP surface height plus `0.5`, matching the actor-origin offset used for AI placement. The image-to-world projection is calibrated from eight scenario-defined Banshee, teleporter, and CTF-flag anchors.
 
