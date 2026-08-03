@@ -99,16 +99,12 @@
       let drag = null;
       let suppressClick = false;
 
-      // The latest in-game check showed engine (67,-148) at the old grid's
-      // (70,-151), so project corrected coordinates through that global offset.
-      const project = (x,y) => {
-        const calibratedX = x + 3;
-        const calibratedY = y - 3;
-        return {
-          u: -5.5389628020*calibratedX + 8.3627477600*calibratedY + 2390.2796633071,
-          v:  8.4071126829*calibratedX + 5.6969250417*calibratedY + 676.8002260162
-        };
-      };
+      // Projection fitted to eight scenario-defined Banshee, teleporter,
+      // and CTF-flag anchors marked on the overhead map.
+      const project = (x,y,z=0) => ({
+        u: -5.03409491*x + 9.12090122*y - 1.72582352*z + 2452.24881,
+        v:  9.30257059*x + 5.14867576*y - 0.40678667*z + 545.329538
+      });
 
       function visibleAtSpacing(p, spacing) {
         return p.x % spacing === 0 && p.y % spacing === 0;
@@ -123,22 +119,22 @@
         ctx.beginPath();
         for (const p of points) {
           if (!visibleAtSpacing(p, spacing)) continue;
-          const a = project(p.x,p.y);
+          const a = project(p.x,p.y,p.z);
           if (a.u < 0 || a.u > canvas.width || a.v < 0 || a.v > canvas.height) continue;
           const right = byKey.get(`${p.x+spacing},${p.y}`);
           const down = byKey.get(`${p.x},${p.y+spacing}`);
-          if (right) { const b=project(right.x,right.y); ctx.moveTo(a.u,a.v); ctx.lineTo(b.u,b.v); }
-          if (down) { const b=project(down.x,down.y); ctx.moveTo(a.u,a.v); ctx.lineTo(b.u,b.v); }
+          if (right) { const b=project(right.x,right.y,right.z); ctx.moveTo(a.u,a.v); ctx.lineTo(b.u,b.v); }
+          if (down) { const b=project(down.x,down.y,down.z); ctx.moveTo(a.u,a.v); ctx.lineTo(b.u,b.v); }
         }
         ctx.stroke();
         for (const p of points) {
           if (!visibleAtSpacing(p, spacing)) continue;
-          const a=project(p.x,p.y);
+          const a=project(p.x,p.y,p.z);
           if (a.u<0||a.u>canvas.width||a.v<0||a.v>canvas.height) continue;
           ctx.beginPath(); ctx.arc(a.u,a.v,spacing===1?1:1.6,0,Math.PI*2); ctx.fill();
         }
         if (hovered) {
-          const a=project(hovered.x,hovered.y);
+          const a=project(hovered.x,hovered.y,hovered.z);
           ctx.beginPath(); ctx.arc(a.u,a.v,7,0,Math.PI*2);
           ctx.fillStyle='#ffed63'; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='#15170f'; ctx.stroke();
         }
@@ -149,7 +145,7 @@
         let best=null, bestDistance=Infinity;
         for (const p of points) {
           if (!visibleAtSpacing(p,spacing)) continue;
-          const q=project(p.x,p.y); const d=(q.u-imageX)**2+(q.v-imageY)**2;
+          const q=project(p.x,p.y,p.z); const d=(q.u-imageX)**2+(q.v-imageY)**2;
           if(d<bestDistance){best=p;bestDistance=d;}
         }
         const cssScale=canvas.getBoundingClientRect().width/canvas.width;

@@ -8,7 +8,7 @@ Open `index.html`, hover over a grid intersection to inspect its `x, y, z` coord
 
 Zoom with the controls or mouse wheel. Click and drag the map to pan while zoomed in.
 
-The displayed `z` value is the Blood Gulch BSP surface height plus `0.5`, matching the actor-origin offset used for AI placement.
+The displayed `z` value is the Blood Gulch BSP surface height plus `0.5`, matching the actor-origin offset used for AI placement. The image-to-world projection is calibrated from eight scenario-defined Banshee, teleporter, and CTF-flag anchors.
 
 ## Files
 
